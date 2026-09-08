@@ -1,0 +1,152 @@
+# پلن پروژه: Deep Agent تولید محتوا (ایده‌یاب + سناریونویس ریلز)
+_تاریخ: ۱۴۰۵/۰۶/۱۷ (2026-09-08)   وضعیت: طراحی، هنوز کدی نوشته نشده_
+
+
+## ۱. هدف
+
+کاربر (تولیدکننده‌ی محتوا) یک عنوان/موضوع می‌دهد. سیستم:
+۱. در یوتیوب، تیک‌تاک و اینستاگرام پست‌هایی را پیدا می‌کند که روی آن موضوع
+   خوب ویو خورده‌اند (در بازه‌ی زمانی قابل ویرایش توسط کاربر).
+۲. لیستی با رفرنس (لینک، پلتفرم، ویو، تاریخ، کپشن، تامبنیل) نشان می‌دهد.
+۳. کاربر پست‌ها را انتخاب می‌کند؛ اگر انتخاب نکرد، ایجنت بهترین‌ها را برمی‌دارد.
+۴. برای پست‌های انتخاب‌شده سناریوی ریلز اینستاگرام ۶۰ ثانیه‌ای می‌نویسد.
+
+تک‌جمله: «awal-backend، اما به جای خبر، پست‌های ترند؛ به جای news item، سناریو.»
+
+
+## ۲. تصمیم‌های گرفته‌شده
+
+- پلتفرم‌ها: YouTube، TikTok، Instagram.
+- خروجی: سناریوی ریلز اینستاگرام، ۱ دقیقه.
+- بازه‌ی زمانی پست‌ها: توسط کاربر قابل ویرایش (پیش‌فرض ۳۰ روز اخیر).
+- ایجنت‌ها: ارکستریشن چند ایجنت با OpenRouter، هر ایجنت مدل/پرامپت/کانتکست
+  خودش (همان الگوی agent_settings فعلی).
+- بک‌اند: همین استک (FastAPI + Rastar modules + Postgres) و داشبورد Next.js.
+
+
+## ۳. تصمیم‌های باز (قبل از شروع کد باید بسته شوند)
+
+[ ] A. سرویس واسطه‌ی اسکرپ برای اینستاگرام/تیک‌تاک: Apify / EnsembleData /
+      ScrapeCreators / HikerAPI. ریسک اصلی = پرداخت از ایران.
+      اقدام: یک تست ۵ دلاری، بررسی کیفیت خروجی (play_count دارد؟ جستجوی
+      کلیدواژه دارد؟ فیلتر تاریخ دارد؟).
+[ ] B. ترنسکریپت ویدیو یا فقط کپشن؟
+      - کپشن‌محور: ارزان، سریع، سناریوی سطحی‌تر.
+      - ترنسکریپت‌محور: دانلود ویدیو + STT (Whisper سلف‌هاست یا مدل صوتی روی
+        OpenRouter مثل Gemini). سناریوی خیلی بهتر، هزینه و زمان بیشتر.
+      پیشنهاد: Extractor اول ترنسکریپت را امتحان کند، اگر نشد به کپشن برگردد.
+[ ] C. پروژه‌ی جدید (ریپوی جدا) یا ماژول جدید در همین ریپو؟
+      پیشنهاد: ریپوی جدا با کپی‌برداری از agent_run / run_history / agent_settings.
+[ ] D. مدل پیش‌فرض هر ایجنت (از کاتالوگ OpenRouter).
+
+
+## ۴. دسترسی به دیتا (سخت‌ترین بخش پروژه)
+
+YouTube
+  - Data API v3 رسمی، رایگان (۱۰هزار واحد/روز)، search.list با publishedAfter،
+    videos.list برای viewCount/likeCount/commentCount/duration.
+  - ترنسکریپت: youtube-transcript-api (زیرنویس خودکار).
+  - ساده‌ترین شروع؛ فاز اول با همین بالا می‌آید.
+
+Instagram
+  - Graph API رسمی: فقط هشتگ (۳۰ هشتگ یکتا/هفته)، بدون ویو برای پست دیگران،
+    نیازمند اکانت Business و App Review  → برای این کاربرد بی‌فایده.
+  - سرویس واسطه (Apify, EnsembleData, ScrapeCreators, HikerAPI): جستجوی
+    کلیدواژه/هشتگ، play_count ریلز، پراکسی و بن با آن‌ها. ~۱ تا ۳ دلار / هزار
+    پست. مشکل: پرداخت.
+  - اسکرپر خودمان (instagrapi/instaloader + اکانت فرعی + پراکسی رزیدنشال):
+    ارزان، ولی شکننده و بن‌خور. فقط برای MVP.
+  - کشف از موتور جستجو (SerpAPI/Brave: site:instagram.com/reel ...): بدون بن،
+    ولی بدون ویو و با رتبه‌ی گوگل. فقط به عنوان fallback.
+
+TikTok
+  - Research API رسمی فقط برای دانشگاه‌ها.
+  - همان سرویس‌های واسطه‌ی بالا (اکثرشان تیک‌تاک هم دارند).
+  - ترنسکریپت: تیک‌تاک زیرنویس خودکار دارد ولی از راه API نه؛ مسیر STT.
+
+راهبرد
+  - لایه‌ی Provider: هر پلتفرم یک آداپتور با اینترفیس ثابت
+      search(queries, since, until, limit) -> list[Post]
+    و پیاده‌سازی‌های قابل تعویض پشتش (apify / ensemble / self-scraper / serp).
+  - کلید و انتخاب provider در تنظیمات اپ (مثل OPENROUTER_API_KEY)، نه کد.
+  - کش همه‌ی پست‌های جمع‌شده در DB؛ تغییر بازه‌ی زمانی اول روی کش فیلتر
+    می‌شود، فقط وقتی داده کم بود دوباره اسکرپ.
+  - اسکرپرهای IG/TT فیلتر تاریخ ندارند (فقط top/recent): بیشتر بگیر، بعد فیلتر کن.
+
+
+## ۵. زنجیره‌ی ایجنت‌ها (PIPELINE_STEPS)
+
+| # | step | نوع | کار |
+|---|---|---|---|
+1  Planner    مدل          از عنوان: ۵-۱۰ کوئری فارسی/انگلیسی + هشتگ‌ها + زاویه‌ها
+2  Collector  کد           آداپتورهای سه پلتفرم را با کوئری‌ها صدا می‌زند، نرمال
+                            می‌کند، تکراری‌ها را حذف می‌کند (URL + هش عنوان/کپشن)
+3  Ranker     کد + مدل     امتیاز عددی: views_per_day = views / max(1, age_days)
+                            + نرخ تعامل (likes+comments)/views ؛ امتیاز ربط
+                            موضوعی ۰-۱۰ از مدل (batched، پاسخ per index)
+                            → لیست نهایی مرتب، با رفرنس
+4  Selector   کاربر/مدل    توقف انسانی. کاربر تیک می‌زند؛ اگر بعد از timeout
+                            یا با «auto» ران شد، مدل top-N را برمی‌دارد
+5  Extractor  کد + مدل     ترنسکریپت (زیرنویس یوتیوب / STT) یا کپشن + کامنت‌های
+                            برتر؛ خلاصه‌ی «چرا این پست گرفت» (هوک، ساختار، فرمت)
+6  Writer     مدل          سناریوی ریلز ۶۰ ثانیه، به ازای هر پست یا ترکیبی:
+                            هوک ۰-۳ث، بدنه با تایم‌کد، CTA، متن روی صفحه،
+                            پیشنهاد B-roll و صدا، ۳ تایتل/کپشن جایگزین، هشتگ
+7  Editor     مدل          یکدست‌سازی لحن، چک زمان‌بندی (~۱۵۰ کلمه/دقیقه)، حذف
+                            کپی مستقیم از منبع
+
+قواعد (عین awal-backend):
+  - خروجی هر step ورودی step بعدی؛ کارت‌های هر step قابل ویرایش.
+  - ایجنت شکست‌خورده step را failed می‌زند و ورودی را پاس می‌دهد؛ زنجیره نمی‌ایستد.
+  - Selector با مکانیزم resume-from-step پیاده می‌شود: ران تا Ranker می‌رود و
+    status = waiting_selection؛ کاربر انتخاب می‌کند؛ rerun از Extractor.
+  - trace هر فراخوانی مدل با کلید ایجنت ذخیره می‌شود.
+
+
+## ۶. مدل داده (بدون رابطه‌ی DB-level، طبق کانونشن)
+
+projects            (پروژه‌ی محتوایی کاربر) name, niche, default_window_days,
+                    platforms[], language, auto_select
+topics              project_id, title, window_from, window_to, status
+posts (cache)       platform, external_id, url, author, caption, published_at,
+                    views, likes, comments, shares, duration, thumbnail_url,
+                    transcript, fetched_at, raw(jsonb)
+agent_runs          topic_id, steps(jsonb), trace(jsonb), status, selected_ids[]
+scripts             topic_id, run_id, source_post_ids[], title, hook, body(jsonb
+                    با تایم‌کد), cta, on_screen_text[], captions[], hashtags[],
+                    status(draft/final)
+agent_settings      همان ساختار فعلی: global + per-project override
+
+
+## ۷. API (طرح اولیه)
+
+/admin/projects                       CRUD
+/admin/projects/{id}/topics           POST → ران را شروع می‌کند
+/admin/topics/{id}                    GET  → steps زنده (تب‌ها)
+/admin/topics/{id}/window             PATCH from/to → فیلتر روی کش، اسکرپ اگر لازم
+/admin/topics/{id}/select             POST post_ids[] (یا {"auto": true}) → ادامه از Extractor
+/admin/runs/{id}/rerun                POST {fromStep}
+/admin/runs/{id}/steps/{key}/cards    PATCH
+/admin/topics/{id}/scripts            GET / PATCH
+/admin/agent-settings[...]            همان فعلی
+/admin/providers                      GET وضعیت/کلید provider ها، PATCH انتخاب
+
+
+## ۸. فازها
+
+فاز ۰ (۱-۲ روز)  تست ریسک: پرداخت و کیفیت یک سرویس واسطه؛ تست STT روی یک ریل.
+                  → تصمیم‌های A و B بسته می‌شوند.
+فاز ۱            اسکلت: کپی agent_run/run_history/agent_settings، Provider
+                  یوتیوب (رسمی)، زنجیره‌ی کامل با یوتیوب فقط، داشبورد تب‌ها.
+فاز ۲            Provider اینستاگرام و تیک‌تاک از سرویس واسطه؛ کش و بازه‌ی زمانی.
+فاز ۳            Selector انسانی در UI، ویرایش کارت‌ها، خروجی سناریو (کپی/دانلود).
+فاز ۴            Extractor با STT، بهبود Writer، تاریخچه‌ی سناریوها به ازای پروژه.
+
+
+## ۹. ریسک‌ها
+
+- پرداخت سرویس‌های خارجی از ایران (بزرگ‌ترین ریسک).
+- شکستن اسکرپرها / بن اکانت (اگر self-scraper).
+- هزینه‌ی مدل: Ranker و Extractor باید batched باشند؛ سقف پست به ازای هر ران.
+- ToS پلتفرم‌ها: فقط داده‌ی عمومی، بدون ذخیره‌ی ویدیوی خام (فقط متن/متادیتا).
+- سناریو نباید کپی منبع باشد؛ Editor مسئول چک.
