@@ -10,8 +10,14 @@ type State = { plan?: PlanCard; posts: PostCard[]; ranked: PostCard[]; selected:
 const now = () => new Date().toISOString();
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** Runs of the topic still waiting for a selection are superseded by a newer run. */
+async function cancelWaiting(topicId: string) {
+  await db.agentRun.updateMany({ where: { topicId, status: "waiting_selection" }, data: { status: "cancelled", finishedAt: new Date() } });
+}
+
 /** A new run of the whole chain for a topic. Returns immediately; the chain continues in the background. */
 export async function startRun(topicId: string, opts: { refresh?: boolean } = {}) {
+  await cancelWaiting(topicId);
   const run = await db.agentRun.create({ data: { topicId, status: "running", currentStep: "planner" } });
   await db.topic.update({ where: { id: topicId }, data: { status: "running" } });
   kick(run.id, "planner", opts);
@@ -24,6 +30,7 @@ export async function rerunFrom(runId: string, fromStep: StepKey, opts: { refres
   const kept: Steps = {};
   const prevSteps = (prev.steps ?? {}) as Steps;
   for (const k of STEP_KEYS) if (stepIndex(k) < stepIndex(fromStep) && prevSteps[k]) kept[k] = prevSteps[k];
+  await cancelWaiting(prev.topicId);
   const run = await db.agentRun.create({ data: { topicId: prev.topicId, status: "running", currentStep: fromStep, steps: kept as object, selectedIds: fromStep === "extractor" ? prev.selectedIds : [] } });
   await db.topic.update({ where: { id: prev.topicId }, data: { status: "running" } });
   kick(run.id, fromStep, opts);

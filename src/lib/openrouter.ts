@@ -15,9 +15,41 @@ export type ModelResult = {
   usage?: { prompt_tokens?: number; completion_tokens?: number };
 };
 
-/** One chat completion over OpenRouter. Throws on transport/HTTP errors. */
+/** Small semaphore: OpenRouter reserves budget per in-flight request, so a low balance
+ *  rejects parallel calls with 402 in_flight_budget_exhausted. Keep a few in flight at most. */
+const MAX_IN_FLIGHT = Number(process.env.OPENROUTER_MAX_IN_FLIGHT ?? 2);
+let inFlight = 0;
+const queue: (() => void)[] = [];
+const acquire = () => new Promise<void>((resolve) => { if (inFlight < MAX_IN_FLIGHT) { inFlight++; resolve(); } else queue.push(() => { inFlight++; resolve(); }); });
+const release = () => { inFlight--; queue.shift()?.(); };
+
+const RETRY_DELAYS_MS = [2000, 5000, 12000];
+const retryable = (status: number, body: string) => status === 429 || status >= 500 || (status === 402 && /in_flight/i.test(body));
+
+/** One chat completion over OpenRouter. Throws on transport/HTTP errors (after retries). */
 export async function callModel(c: ModelCall): Promise<ModelResult> {
   if (!env.openrouterKey) throw new Error("OPENROUTER_API_KEY is not set");
+  await acquire();
+  try {
+    let lastErr: Error | null = null;
+    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt - 1]));
+      try {
+        return await once(c);
+      } catch (e) {
+        lastErr = e instanceof Error ? e : new Error(String(e));
+        if (!(e instanceof RetryableError)) throw lastErr;
+      }
+    }
+    throw lastErr ?? new Error("OpenRouter call failed");
+  } finally {
+    release();
+  }
+}
+
+class RetryableError extends Error {}
+
+async function once(c: ModelCall): Promise<ModelResult> {
   const t0 = Date.now();
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
@@ -39,7 +71,11 @@ export async function callModel(c: ModelCall): Promise<ModelResult> {
     }),
     signal: AbortSignal.timeout(180_000),
   });
-  if (!res.ok) throw new Error(`OpenRouter ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  if (!res.ok) {
+    const body = await res.text();
+    const msg = `OpenRouter ${res.status}: ${body.slice(0, 300)}`;
+    throw retryable(res.status, body) ? new RetryableError(msg) : new Error(msg);
+  }
   const data = await res.json();
   const content: string = data.choices?.[0]?.message?.content ?? "";
   return { content, ms: Date.now() - t0, usage: data.usage };

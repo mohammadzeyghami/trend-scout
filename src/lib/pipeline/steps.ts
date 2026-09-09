@@ -231,6 +231,7 @@ export function shapeScript(r: Partial<ScriptCard>, x: ExtractCard | ScriptCard)
 type ScriptBeatLike = { time?: unknown; voice?: unknown; visual?: unknown };
 
 // ----------------------------------------------------------------- 7. Editor
+const MIN_WORDS = 120;
 export async function runEditor(e: StepEnv, drafts: ScriptCard[]): Promise<ScriptCard[]> {
   return Promise.all(
     drafts.map(async (d) => {
@@ -238,8 +239,21 @@ export async function runEditor(e: StepEnv, drafts: ScriptCard[]): Promise<Scrip
         const { kind: _k, scriptId: _s, sourcePostIds: _p, sourceUrl: _u, sourcePlatform: _pl, wordCount: _w, ...payload } = d;
         void _k; void _s; void _p; void _u; void _pl; void _w;
         const r = await e.ctx.callJson<Partial<ScriptCard>>("editor", `Topic: ${e.topic.title}\nCreator language: ${e.project.language}\n\nScript:\n${JSON.stringify(payload)}`, { maxTokens: 3000 });
-        const polished = shapeScript(r, d);
+        let polished = shapeScript(r, d);
         if (!polished.hook || polished.body.length < 3) throw new Error("editor returned an incomplete script");
+        // A 60-second read needs ~130-160 spoken words; models tend to under-write. One explicit expansion pass.
+        if (polished.wordCount < MIN_WORDS) {
+          const r2 = await e.ctx.callJson<Partial<ScriptCard>>(
+            "editor",
+            `Topic: ${e.topic.title}\nCreator language: ${e.project.language}\n\nThis script has only ${polished.wordCount} spoken words (hook + voice + cta) — too short for 60 seconds. Expand the spoken "voice" lines with concrete detail, examples or one more beat until the total is 140-160 words. Keep the same JSON shape and the same language.\n\nScript:\n${JSON.stringify({ ...payload, hook: polished.hook, body: polished.body, cta: polished.cta })}`,
+            { maxTokens: 3000 },
+          );
+          const expanded = shapeScript(r2, d);
+          if (expanded.hook && expanded.body.length >= 3 && expanded.wordCount > polished.wordCount) {
+            e.notes.push(`«${polished.title}» از ${polished.wordCount} به ${expanded.wordCount} کلمه بلند شد`);
+            polished = expanded;
+          } else e.notes.push(`«${polished.title}» کوتاه ماند (${polished.wordCount} کلمه)`);
+        }
         return polished;
       } catch (err) {
         e.notes.push(`ویرایش «${d.title}» نشد، نسخه‌ی نویسنده نگه داشته شد: ${err instanceof Error ? err.message : err}`);

@@ -23,11 +23,11 @@ export const PLATFORM_FA: Record<string, string> = { youtube: "یوتیوب", in
 export const PLATFORM_COLOR: Record<string, string> = { youtube: "bg-red-100 text-red-800", instagram: "bg-pink-100 text-pink-800", tiktok: "bg-zinc-800 text-white" };
 
 export const STATUS_FA: Record<string, string> = {
-  idle: "آماده", running: "در حال اجرا", waiting_selection: "منتظر انتخاب", finished: "تمام‌شده", failed: "شکست‌خورده",
+  idle: "آماده", running: "در حال اجرا", waiting_selection: "منتظر انتخاب", finished: "تمام‌شده", failed: "شکست‌خورده", cancelled: "لغوشده (اجرای جدیدتر)",
   pending: "در انتظار", done: "انجام‌شده", waiting: "منتظر", draft: "پیش‌نویس", final: "نهایی",
 };
 export const STATUS_COLOR: Record<string, string> = {
   idle: "bg-zinc-100 text-zinc-700", running: "bg-blue-100 text-blue-800", waiting_selection: "bg-amber-100 text-amber-800",
-  finished: "bg-green-100 text-green-800", failed: "bg-red-100 text-red-800", pending: "bg-zinc-100 text-zinc-500",
+  finished: "bg-green-100 text-green-800", failed: "bg-red-100 text-red-800", cancelled: "bg-zinc-200 text-zinc-500", pending: "bg-zinc-100 text-zinc-500",
   done: "bg-green-100 text-green-800", waiting: "bg-amber-100 text-amber-800", draft: "bg-zinc-100 text-zinc-700", final: "bg-green-100 text-green-800",
 };
