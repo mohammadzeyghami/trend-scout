@@ -1,0 +1,15 @@
+# Local dev infra only. Ports are offset so it runs beside the other apps on this Mac.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: trend-scout-db
+    environment:
+      POSTGRES_USER: trend
+      POSTGRES_PASSWORD: trend
+      POSTGRES_DB: trend_scout
+    ports:
+      - "5438:5432"
+    volumes:
+      - trend_scout_pg:/var/lib/postgresql/data
+volumes:
+  trend_scout_pg:

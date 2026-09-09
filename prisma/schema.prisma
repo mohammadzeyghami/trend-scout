@@ -1,0 +1,118 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A content creator's workspace: niche, platforms, defaults for every topic.
+model Project {
+  id                String   @id @default(cuid())
+  name              String
+  niche             String   @default("")
+  language          String   @default("fa")
+  platforms         String[] @default(["youtube", "instagram", "tiktok"])
+  defaultWindowDays Int      @default(30)
+  autoSelect        Boolean  @default(false)
+  maxSelected       Int      @default(3)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+/// One request: a title to research inside a time window. Owns runs and scripts.
+model Topic {
+  id         String   @id @default(cuid())
+  projectId  String
+  title      String
+  windowFrom DateTime
+  windowTo   DateTime
+  status     String   @default("idle") // idle | running | waiting_selection | finished | failed
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([projectId])
+}
+
+/// Global cache of collected posts, keyed by platform + external id.
+model Post {
+  id           String    @id @default(cuid())
+  platform     String
+  externalId   String
+  url          String
+  author       String    @default("")
+  title        String    @default("")
+  caption      String    @default("")
+  publishedAt  DateTime?
+  views        Int       @default(0)
+  likes        Int       @default(0)
+  comments     Int       @default(0)
+  shares       Int       @default(0)
+  durationSec  Int?
+  thumbnailUrl String?
+  transcript   String?
+  raw          Json?
+  fetchedAt    DateTime  @default(now())
+
+  @@unique([platform, externalId])
+}
+
+/// Which cached posts a topic's collector has seen (so a window change filters locally first).
+model TopicPost {
+  topicId String
+  postId  String
+  addedAt DateTime @default(now())
+
+  @@id([topicId, postId])
+}
+
+/// One execution of the chain; steps and trace are written live as it progresses.
+model AgentRun {
+  id          String    @id @default(cuid())
+  topicId     String
+  status      String    @default("running") // running | waiting_selection | finished | failed
+  currentStep String?
+  steps       Json      @default("{}")
+  trace       Json      @default("[]")
+  selectedIds String[]  @default([])
+  error       String?
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+
+  @@index([topicId])
+}
+
+/// A finished 60-second Reel script, delivered by the Editor step.
+model Script {
+  id            String   @id @default(cuid())
+  topicId       String
+  runId         String
+  sourcePostIds String[] @default([])
+  title         String
+  hook          String
+  body          Json     @default("[]")
+  cta           String   @default("")
+  onScreenText  String[] @default([])
+  captions      String[] @default([])
+  hashtags      String[] @default([])
+  notes         String   @default("")
+  status        String   @default("draft") // draft | final
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([topicId])
+}
+
+/// Per-agent model/prompt/temperature: global defaults (projectId null) plus a project's own copies.
+model AgentSetting {
+  id          String   @id @default(cuid())
+  agentKey    String
+  projectId   String?
+  model       String
+  prompt      String
+  temperature Float    @default(0.3)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([agentKey, projectId])
+}
